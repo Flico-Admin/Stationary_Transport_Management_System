@@ -1,6 +1,12 @@
 // MySQL connection. All SQL in this project goes through q() and tx().
 import mysql from 'mysql2/promise';
 
+// TiDB Cloud (and most hosted MySQL) needs SSL. Set DB_SSL=true in the hosting environment.
+// Local MySQL: leave DB_SSL unset and nothing changes.
+const ssl = process.env.DB_SSL === 'true'
+  ? { minVersion: 'TLSv1.2', rejectUnauthorized: true }
+  : undefined;
+
 export const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT || 3306),
@@ -11,6 +17,7 @@ export const pool = mysql.createPool({
   connectionLimit: 10,
   timezone: 'Z',          // all dates are stored and read as UTC
   charset: 'utf8mb4',
+  ssl,
 });
 
 // Run one query. Pass a connection (from tx) to run inside a transaction.
