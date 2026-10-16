@@ -57,8 +57,16 @@ try {
   await pool.query('SELECT 1');
   console.log(`Connected to MySQL database "${process.env.DB_NAME || 'request_desk'}"`);
 } catch (e) {
-  console.error('\nCould not connect to MySQL:', e.message);
-  console.error('Check DB_HOST / DB_USER / DB_PASSWORD / DB_NAME in the .env file and make sure MySQL is running.\n');
+  // Show exactly what the app tried to connect to (never the password), so hosting problems are easy to spot.
+  const first = e.errors?.[0] || e;
+  console.error('\nCould not connect to MySQL.');
+  console.error(`  Host: ${process.env.DB_HOST || '(DB_HOST not set, using localhost)'}`);
+  console.error(`  Port: ${process.env.DB_PORT || '(not set, using 3306)'}`);
+  console.error(`  User: ${process.env.DB_USER || '(not set, using root)'}`);
+  console.error(`  Database: ${process.env.DB_NAME || '(not set, using request_desk)'}`);
+  console.error(`  SSL: ${process.env.DB_SSL === 'true' ? 'on' : 'off (DB_SSL is not "true")'}`);
+  console.error(`  Error: ${first.code || ''} ${first.message || e.message || String(e)}`);
+  console.error('Check DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME / DB_SSL in the hosting Environment settings (or .env locally).\n');
   process.exit(1);
 }
 app.listen(port, () => console.log(`Backend running at http://localhost:${port}`));
