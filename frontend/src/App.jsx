@@ -11,6 +11,7 @@ import Purchasing from './pages/Purchasing.jsx';
 import Maintenance from './pages/Maintenance.jsx';
 import Reports from './pages/Reports.jsx';
 import VehicleCosts from './pages/VehicleCosts.jsx';
+import StationeryCosts from './pages/StationeryCosts.jsx';
 import Users from './pages/Users.jsx';
 import Locations from './pages/Locations.jsx';
 
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/maintenance" element={<Maintenance />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/vehicle-costs" element={<VehicleCosts />} />
+        <Route path="/stationery-costs" element={<StationeryCosts />} />
         <Route path="/users" element={<Users />} />
         <Route path="/locations" element={<Locations />} />
         <Route path="*" element={<Navigate to="/" />} />

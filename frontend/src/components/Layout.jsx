@@ -23,6 +23,7 @@ export default function Layout({ children }) {
     { title: 'Management', links: [
       { to: '/reports', label: 'Reports', show: can('reports') },
       { to: '/vehicle-costs', label: 'Vehicle costs', show: can('costReports') },
+      { to: '/stationery-costs', label: 'Stationery costs', show: can('costReports') },
       { to: '/locations', label: 'Departments and locations', show: can('locations') },
       { to: '/users', label: 'Users and permissions', show: can('users') },
     ] },

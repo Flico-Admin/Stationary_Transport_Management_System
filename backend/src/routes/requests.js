@@ -148,13 +148,13 @@ r.post('/:ref/issue', async (req, res) => {
     const row = await lockRequest(conn, req.params.ref);
     if (row.type !== 'stationery') throw bad('This is not a stationery request.');
     if (row.status !== 'Approved') throw wrongStatus(row);
-    const lines = await q('SELECT l.*, i.name AS item_name FROM request_lines l JOIN items i ON i.id = l.item_id WHERE l.request_id = ? ORDER BY l.line_no', [row.id], conn);
+    const lines = await q('SELECT l.*, i.name AS item_name, i.unit_price AS item_price FROM request_lines l JOIN items i ON i.id = l.item_id WHERE l.request_id = ? ORDER BY l.line_no', [row.id], conn);
     for (let i = 0; i < lines.length; i++) {
       const v = Number(issuedMap?.[i]);
       if (!Number.isInteger(v) || v < 0 || v > (lines[i].approved_qty ?? lines[i].qty)) throw bad('Issued quantity cannot be more than the approved quantity.');
       const upd = await q('UPDATE items SET stock = stock - ? WHERE id = ? AND stock >= ?', [v, lines[i].item_id, v], conn);
       if (!upd.affectedRows) throw bad(`Not enough stock for ${lines[i].item_name}.`);
-      await q('UPDATE request_lines SET issued_qty = ? WHERE id = ?', [v, lines[i].id], conn);
+      await q('UPDATE request_lines SET issued_qty = ?, unit_price = ? WHERE id = ?', [v, lines[i].item_price, lines[i].id], conn);
     }
     await q("UPDATE requests SET status = 'Issued / Completed', received_by = ?, issued_at = ? WHERE id = ?", [receivedBy.trim(), now(), row.id], conn);
     await history(conn, row.id, req.user.name, `Issued items. Received by ${receivedBy.trim()}`);

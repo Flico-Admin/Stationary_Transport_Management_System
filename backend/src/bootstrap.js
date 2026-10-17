@@ -31,9 +31,12 @@ export async function buildDb(user) {
 
   // ----- stationery -----
   const categories = (await q('SELECT name FROM categories ORDER BY id')).map((c) => c.name);
+  // Prices are only sent to people who manage items or may see the cost reports (other users get 0)
+  const seesPrices = can(user, 'items', 'view') || can(user, 'costReports', 'view');
   const items = (await q(
-    `SELECT i.id, i.code, i.name, c.name AS category, i.unit, i.description, i.stock, i.min_stock AS min, i.active
-       FROM items i JOIN categories c ON c.id = i.category_id ORDER BY i.id`)).map((i) => ({ ...i, active: !!i.active }));
+    `SELECT i.id, i.code, i.name, c.name AS category, i.unit, i.description, i.stock, i.min_stock AS min, i.unit_price AS unitPrice, i.active
+       FROM items i JOIN categories c ON c.id = i.category_id ORDER BY i.id`))
+    .map((i) => ({ ...i, unitPrice: seesPrices ? Number(i.unitPrice) : 0, active: !!i.active }));
 
   // ----- vehicles, drivers, suppliers -----
   // Trips that are assigned a vehicle and not completed yet. This is sent to everyone, so every user can see how many

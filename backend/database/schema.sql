@@ -76,6 +76,7 @@ CREATE TABLE items (
   description VARCHAR(255) NOT NULL DEFAULT '',
   stock       INT NOT NULL DEFAULT 0,
   min_stock   INT NOT NULL DEFAULT 0,
+  unit_price  DECIMAL(12,2) NOT NULL DEFAULT 0,   -- price of one unit, used by the Stationery costs report
   active      TINYINT(1) NOT NULL DEFAULT 1,
   CONSTRAINT fk_item_cat FOREIGN KEY (category_id) REFERENCES categories(id)
 ) ENGINE=InnoDB;
@@ -195,6 +196,7 @@ CREATE TABLE request_lines (
   qty         INT NOT NULL,
   approved_qty INT NULL,
   issued_qty   INT NULL,
+  unit_price   DECIMAL(12,2) NULL,                -- item price at the moment it was issued (so old costs never change)
   CONSTRAINT fk_rl_req  FOREIGN KEY (request_id) REFERENCES requests(id) ON DELETE CASCADE,
   CONSTRAINT fk_rl_item FOREIGN KEY (item_id)    REFERENCES items(id)
 ) ENGINE=InnoDB;

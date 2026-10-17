@@ -8,7 +8,8 @@ INSERT INTO roles (role_key, label) VALUES
   ('employee', 'Employee'),
   ('hod', 'HOD'),
   ('admin', 'Admin Department'),
-  ('it', 'IT Department');
+  ('it', 'IT Department'),
+  ('finance_hod', 'Finance HOD');
 
 INSERT INTO role_permissions (role_key, module, action) VALUES
   ('employee', 'requests', 'view'),
@@ -94,7 +95,15 @@ INSERT INTO role_permissions (role_key, module, action) VALUES
   ('it', 'users', 'view'),
   ('it', 'users', 'add'),
   ('it', 'users', 'edit'),
-  ('it', 'users', 'delete');
+  ('it', 'users', 'delete'),
+  ('finance_hod', 'requests', 'view'),
+  ('finance_hod', 'requests', 'add'),
+  ('finance_hod', 'costReports', 'view'),
+  ('admin', 'costReports', 'view'),
+  ('it', 'costReports', 'view'),
+  ('it', 'costReports', 'add'),
+  ('it', 'costReports', 'edit'),
+  ('it', 'costReports', 'delete');
 
 -- ids follow the order below: 1 Operations, 2 Finance, 3 Marketing, 4 IT, 5 Admin, 6-18 Showrooms, 19-21 Warehouses
 INSERT INTO units (id, name, type, approver_unit_id, active) VALUES
@@ -130,13 +139,13 @@ INSERT INTO users (id, name, email, password_hash, role_key, unit_id, active) VA
 
 INSERT INTO categories (id, name) VALUES (1,'Paper'),(2,'Writing'),(3,'Files and folders'),(4,'Printing'),(5,'Office supplies');
 
-INSERT INTO items (id, code, name, category_id, unit, description, stock, min_stock, active) VALUES
-  (1,'STN-001','A4 Paper',1,'box','5 reams per box, 80gsm',24,10,1),
-  (2,'STN-002','Blue Pen',2,'box','50 pens per box',6,8,1),
-  (3,'STN-003','Box File',3,'piece','Large, lever arch',40,15,1),
-  (4,'STN-004','Printer Toner (Black)',4,'piece','Compatible with the main office printer',3,4,1),
-  (5,'STN-005','Stapler Pins',5,'pack','No. 24/6',55,20,1),
-  (6,'STN-006','Marker Pen',2,'pack','Assorted colours, pack of 4',18,6,1);
+INSERT INTO items (id, code, name, category_id, unit, description, stock, min_stock, unit_price, active) VALUES
+  (1,'STN-001','A4 Paper',1,'box','5 reams per box, 80gsm',24,10,6500,1),
+  (2,'STN-002','Blue Pen',2,'box','50 pens per box',6,8,2250,1),
+  (3,'STN-003','Box File',3,'piece','Large, lever arch',40,15,650,1),
+  (4,'STN-004','Printer Toner (Black)',4,'piece','Compatible with the main office printer',3,4,18500,1),
+  (5,'STN-005','Stapler Pins',5,'pack','No. 24/6',55,20,180,1),
+  (6,'STN-006','Marker Pen',2,'pack','Assorted colours, pack of 4',18,6,950,1);
 
 INSERT INTO vehicles (id, number, type, capacity, status, active) VALUES
   (1,'CAB-1234','Car',4,'available',1),
@@ -176,11 +185,11 @@ INSERT INTO requests (id, type, user_id, unit_id, status, created_at, required_d
   (1004,'stationery',2,6,'Issued / Completed',DATE_ADD(UTC_TIMESTAMP(), INTERVAL -9 DAY),DATE_ADD(UTC_DATE(), INTERVAL -5 DAY),'',NULL,NULL,'Kasun Silva',DATE_ADD(UTC_TIMESTAMP(), INTERVAL -6 DAY), NULL,NULL,NULL,NULL,NULL,NULL,NULL),
   (1005,'stationery',1,3,'Rejected',DATE_ADD(UTC_TIMESTAMP(), INTERVAL -12 DAY),DATE_ADD(UTC_DATE(), INTERVAL -8 DAY),'','hod','Stock requested is more than the team needs this month',NULL,NULL, NULL,NULL,NULL,NULL,NULL,NULL,NULL);
 
-INSERT INTO request_lines (request_id, line_no, item_id, qty, approved_qty, issued_qty) VALUES
-  (1001,0,1,4,NULL,NULL),(1001,1,6,3,NULL,NULL),
-  (1002,0,2,2,NULL,NULL),(1002,1,4,2,NULL,NULL),
-  (1004,0,3,10,8,8),
-  (1005,0,1,30,NULL,NULL);
+INSERT INTO request_lines (request_id, line_no, item_id, qty, approved_qty, issued_qty, unit_price) VALUES
+  (1001,0,1,4,NULL,NULL,NULL),(1001,1,6,3,NULL,NULL,NULL),
+  (1002,0,2,2,NULL,NULL,NULL),(1002,1,4,2,NULL,NULL,NULL),
+  (1004,0,3,10,8,8,650),
+  (1005,0,1,30,NULL,NULL,NULL);
 
 INSERT INTO request_history (request_id, at, by_name, action, comment) VALUES
   (1001, DATE_ADD(UTC_TIMESTAMP(), INTERVAL -1 DAY), 'Nimal Perera', 'Created request', NULL),

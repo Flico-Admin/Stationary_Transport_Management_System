@@ -18,11 +18,13 @@ r.post('/items/save', async (req, res) => {
   if (!cat) throw bad('Choose a category from the list.');
   const stock = int(b.stock, 'Stock must be a whole number.'); const min = int(b.min, 'Minimum stock must be a whole number.');
   if (stock < 0 || min < 0) throw bad('Stock cannot be negative.');
+  const price = b.unitPrice === '' || b.unitPrice == null ? 0 : Number(b.unitPrice);
+  if (!Number.isFinite(price) || price < 0 || price > 9999999999) throw bad('Unit price must be a number, 0 or more.');
   try {
-    if (b.id) await q('UPDATE items SET code=?, name=?, category_id=?, unit=?, description=?, stock=?, min_stock=? WHERE id=?',
-      [b.code.trim(), b.name.trim(), cat.id, b.unit || 'piece', b.description || '', stock, min, b.id]);
-    else await q('INSERT INTO items (code, name, category_id, unit, description, stock, min_stock, active) VALUES (?,?,?,?,?,?,?,1)',
-      [b.code.trim(), b.name.trim(), cat.id, b.unit || 'piece', b.description || '', stock, min]);
+    if (b.id) await q('UPDATE items SET code=?, name=?, category_id=?, unit=?, description=?, stock=?, min_stock=?, unit_price=? WHERE id=?',
+      [b.code.trim(), b.name.trim(), cat.id, b.unit || 'piece', b.description || '', stock, min, price, b.id]);
+    else await q('INSERT INTO items (code, name, category_id, unit, description, stock, min_stock, unit_price, active) VALUES (?,?,?,?,?,?,?,?,1)',
+      [b.code.trim(), b.name.trim(), cat.id, b.unit || 'piece', b.description || '', stock, min, price]);
   } catch (e) { dupMsg(e, 'This item code is already used.'); }
   res.json({ ok: true });
 });

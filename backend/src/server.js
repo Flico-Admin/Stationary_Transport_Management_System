@@ -7,6 +7,7 @@ import { buildDb } from './bootstrap.js';
 import requests from './routes/requests.js';
 import master from './routes/master.js';
 import admin from './routes/admin.js';
+import costs from './routes/costs.js';
 
 const app = express();
 app.use(cors());
@@ -43,6 +44,7 @@ app.get('/api/bootstrap', async (req, res, next) => {
 app.use('/api/requests', wrapRouter(requests));
 app.use('/api', wrapRouter(master));
 app.use('/api', wrapRouter(admin));
+app.use('/api', wrapRouter(costs));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 

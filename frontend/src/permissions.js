@@ -16,7 +16,7 @@ export const MODULES = [
   { key: 'maintenance', label: 'Vehicle maintenance and fuel' },
   { key: 'reports', label: 'Reports (own locations)' },
   { key: 'reportsAll', label: 'Reports for all locations' },
-  { key: 'costReports', label: 'Vehicle cost report (repairs and fuel)' },
+  { key: 'costReports', label: 'Cost reports (vehicles and stationery)' },
   { key: 'locations', label: 'Departments, showrooms and warehouses' },
   { key: 'users', label: 'Users and permissions' },
 ];

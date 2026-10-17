@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useStore } from '../store.jsx';
-import { Badge, Empty, Field, Modal, PageHeader } from '../components/ui.jsx';
+import { Badge, Empty, Field, Modal, PageHeader, money } from '../components/ui.jsx';
 
-const BLANK = { code: '', name: '', category: '', unit: 'piece', description: '', stock: 0, min: 0, active: true };
+const BLANK = { code: '', name: '', category: '', unit: 'piece', description: '', stock: 0, min: 0, unitPrice: 0, active: true };
 
 export default function Items() {
   const { db, can, act } = useStore();
@@ -20,7 +20,8 @@ export default function Items() {
   const save = () => {
     if (!edit.name.trim() || !edit.code.trim() || !edit.category) return setErr('Name, code and category are required.');
     if (db.items.some((i) => i.code === edit.code.trim() && i.id !== edit.id)) return setErr('This item code is already used.');
-    act.save('items', { ...edit, stock: Number(edit.stock), min: Number(edit.min) });
+    if (!(Number(edit.unitPrice || 0) >= 0)) return setErr('Unit price must be 0 or more.');
+    act.save('items', { ...edit, stock: Number(edit.stock), min: Number(edit.min), unitPrice: Number(edit.unitPrice || 0) });
     setEdit(null);
   };
 
@@ -37,13 +38,14 @@ export default function Items() {
       <section className="panel flush">
         {rows.length === 0 ? <Empty>No items found.</Empty> : (
           <div className="scroll"><table className="table">
-            <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit</th><th>In stock</th><th>Minimum</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>Code</th><th>Name</th><th>Category</th><th>Unit</th><th>Unit price</th><th>In stock</th><th>Minimum</th><th>Status</th><th /></tr></thead>
             <tbody>
               {rows.map((i) => (
                 <tr key={i.id} className={i.active ? '' : 'faded'}>
                   <td>{i.code}</td>
                   <td><b>{i.name}</b><div className="sub">{i.description}</div></td>
                   <td>{i.category}</td><td>{i.unit}</td>
+                  <td>{i.unitPrice > 0 ? money(i.unitPrice) : <span className="sub">Not set</span>}</td>
                   <td className={i.stock <= i.min ? 'warn' : ''}>{i.stock}{i.stock <= i.min && <span className="badge wait low">Low stock</span>}</td>
                   <td>{i.min}</td>
                   <td><Badge status={i.active ? 'Active' : 'Inactive'} /></td>
@@ -73,6 +75,7 @@ export default function Items() {
             <Field label="Current stock"><input type="number" min="0" value={edit.stock} onChange={(e) => setEdit({ ...edit, stock: e.target.value })} /></Field>
             <Field label="Minimum quantity" hint="Low-stock warning appears at or below this."><input type="number" min="0" value={edit.min} onChange={(e) => setEdit({ ...edit, min: e.target.value })} /></Field>
           </div>
+          <Field label="Unit price" hint="Price of one unit. Used by the Stationery costs report."><input type="number" min="0" step="0.01" value={edit.unitPrice ?? 0} onChange={(e) => setEdit({ ...edit, unitPrice: e.target.value })} /></Field>
           <Field label="Description"><textarea rows="2" value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} /></Field>
           {err && <p className="err">{err}</p>}
         </Modal>
