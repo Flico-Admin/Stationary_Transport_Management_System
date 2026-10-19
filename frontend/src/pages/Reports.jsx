@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore, hodCovers } from '../store.jsx';
 import { Empty, PageHeader, downloadCsv, fmtDate } from '../components/ui.jsx';
+import { downloadPdf } from '../pdf.js';
 import { buildReport, filterRequests, scopeUnitIds, summarize } from '../reportData.js';
 
 const TYPE_TITLES = { department: 'Departments', showroom: 'Showrooms', warehouse: 'Warehouses' };
@@ -32,12 +33,19 @@ export default function Reports() {
   const showing = isStock ? 'Current stock of all active items.' : `Showing: ${where}${type ? `, ${type} requests` : ''}, ${period}.`;
 
   const exportCsv = () => downloadCsv(`${kind}${isStock ? '' : ` - ${where}`}.csv`.toLowerCase().replace(/\s+/g, '-'), [head, ...rows]);
+  const exportPdf = () => downloadPdf({
+    filename: `${kind}${isStock ? '' : ` - ${where}`}.pdf`.toLowerCase().replace(/\s+/g, '-'),
+    title: `Report - ${kind}`,
+    subtitle: showing,
+    summary: isStock ? [] : [['Requests', sum.total], ['Pending', sum.pending], ['Approved or completed', sum.done], ['Rejected', sum.rejected]],
+    head, rows,
+  });
 
   return (
     <>
       <PageHeader title="Reports" sub={showing}>
         <button className="btn" onClick={exportCsv}>Export to Excel (CSV)</button>
-        <button className="btn" onClick={() => window.print()}>Save as PDF</button>
+        <button className="btn" onClick={exportPdf}>Save as PDF</button>
       </PageHeader>
 
       {!seeAll && <p className="note">You see reports for the locations you approve requests for ({scopeUnits.length}). The Admin department and IT see every location.</p>}

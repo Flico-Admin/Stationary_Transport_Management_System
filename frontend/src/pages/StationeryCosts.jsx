@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../store.jsx';
 import { api } from '../api.js';
 import { Empty, PageHeader, Tabs, downloadCsv, fmtDate, money } from '../components/ui.jsx';
+import { downloadPdf } from '../pdf.js';
 import { buildStationeryReport, buildStockReport, pickRows, stockRows, stockTotals, totals } from '../stationeryCostData.js';
 
 const VIEWS = ['Issued cost', 'Stock value'];
@@ -46,10 +47,17 @@ export default function StationeryCosts() {
   const where = unitId ? db.units.find((u) => u.id === Number(unitId))?.name : 'All locations';
   const period = from || to ? `${from ? fmtDate(from) : 'the start'} to ${to ? fmtDate(to) : 'today'}` : 'all dates';
   const cell = (c, j) => (moneyCols.includes(j) && c !== '' ? money(c) : dates.includes(j) ? fmtDate(c) : c);
-  const exportCsv = () => downloadCsv(
-    (isStock ? `stationery-stock-value-${stockKind}-${category || 'all-categories'}.csv` : `stationery-costs-${kind}-${where}.csv`).toLowerCase().replace(/\s+/g, '-'),
-    [head, ...table],
-  );
+  const base = (isStock ? `stationery-stock-value-${stockKind}-${category || 'all-categories'}` : `stationery-costs-${kind}-${where}`).toLowerCase().replace(/\s+/g, '-');
+  const exportCsv = () => downloadCsv(`${base}.csv`, [head, ...table]);
+  const exportPdf = () => downloadPdf({
+    filename: `${base}.pdf`,
+    title: `${isStock ? 'Stationery stock value' : 'Stationery costs'} - ${isStock ? stockKind : kind}`,
+    subtitle: sub,
+    summary: isStock
+      ? [['Total stock value', money(sSum.value)], ['Units in stock', money(sSum.units)], ['Items', sSum.items], ['Low stock', sSum.low]]
+      : [['Total cost', money(sum.cost)], ['Items issued', money(sum.qty)], ['Requests', sum.requests]],
+    head, rows: table, cell,
+  });
 
   const sub = isStock
     ? `Value of the stock in the store right now (quantity in stock x unit price). Showing: ${category || 'all categories'}${includeInactive ? ', including inactive items' : ''}.`
@@ -66,7 +74,7 @@ export default function StationeryCosts() {
     <>
       <PageHeader title="Stationery costs" sub={sub}>
         <button className="btn" onClick={exportCsv}>Export to Excel (CSV)</button>
-        <button className="btn" onClick={() => window.print()}>Save as PDF</button>
+        <button className="btn" onClick={exportPdf}>Save as PDF</button>
       </PageHeader>
 
       <Tabs tabs={VIEWS} value={view} onChange={setView} />

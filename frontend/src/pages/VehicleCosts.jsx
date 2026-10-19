@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../store.jsx';
 import { Empty, PageHeader, Tabs, downloadCsv, fmtDate, money } from '../components/ui.jsx';
+import { downloadPdf } from '../pdf.js';
 import { buildCostReport, pickRecords, totals } from '../costData.js';
 
 const KINDS = ['By vehicle', 'By month', 'Repair details', 'Fuel details'];
@@ -22,12 +23,19 @@ export default function VehicleCosts() {
   const period = from || to ? `${from ? fmtDate(from) : 'the start'} to ${to ? fmtDate(to) : 'today'}` : 'all dates';
   const cell = (c, j) => (moneyCols.includes(j) && c !== '' ? money(c) : dates.includes(j) ? fmtDate(c) : c);
   const exportCsv = () => downloadCsv(`vehicle-costs-${kind}-${vName}.csv`.toLowerCase().replace(/\s+/g, '-'), [head, ...rows]);
+  const exportPdf = () => downloadPdf({
+    filename: `vehicle-costs-${kind}-${vName}.pdf`.toLowerCase().replace(/\s+/g, '-'),
+    title: `Vehicle costs - ${kind}`,
+    subtitle: `Repair and fuel costs. Showing: ${vName}, ${period}.`,
+    summary: [['Repair cost', money(sum.repair)], ['Fuel cost', money(sum.fuel)], ['Total running cost', money(sum.all)]],
+    head, rows, cell,
+  });
 
   return (
     <>
       <PageHeader title="Vehicle costs" sub={`Repair and fuel costs. Showing: ${vName}, ${period}.`}>
         <button className="btn" onClick={exportCsv}>Export to Excel (CSV)</button>
-        <button className="btn" onClick={() => window.print()}>Save as PDF</button>
+        <button className="btn" onClick={exportPdf}>Save as PDF</button>
       </PageHeader>
 
       <div className="filters">
