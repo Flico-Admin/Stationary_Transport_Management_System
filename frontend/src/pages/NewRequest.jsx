@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore, approverUnitId, availableVehicles } from '../store.jsx';
 import { PageHeader } from '../components/ui.jsx';
+import { todayText, nowText, LIMITS } from '../approval.js';
 import './newrequest.css';
 
 const IconBox = () => (
@@ -25,11 +26,11 @@ const F = ({ label, hint, children, grow }) => (
   </label>
 );
 
-const Stepper = ({ value, onChange, min = 1 }) => (
+const Stepper = ({ value, onChange, min = 1, max }) => (
   <div className="nr-step">
     <button type="button" onClick={() => onChange(Math.max(min, Number(value || min) - 1))} aria-label="Decrease">−</button>
-    <input type="number" min={min} value={value} onChange={(e) => onChange(e.target.value)} />
-    <button type="button" onClick={() => onChange(Number(value || 0) + 1)} aria-label="Increase">+</button>
+    <input type="number" min={min} max={max} step="1" value={value} onChange={(e) => onChange(e.target.value)} />
+    <button type="button" onClick={() => onChange(max ? Math.min(max, Number(value || 0) + 1) : Number(value || 0) + 1)} aria-label="Increase">+</button>
   </div>
 );
 
@@ -67,16 +68,27 @@ export default function NewRequest() {
     if (isStationery) {
       const clean = filled.map((l) => ({ itemId: Number(l.itemId), qty: Number(l.qty) }));
       if (!clean.length) return setError('Add at least one item with a quantity.');
+      if (clean.length > LIMITS.lines) return setError(`A request can have at most ${LIMITS.lines} items.`);
+      if (clean.some((l) => !Number.isInteger(l.qty))) return setError('Quantities must be whole numbers.');
+      if (clean.some((l) => l.qty > LIMITS.qty)) return setError(`A quantity cannot be more than ${LIMITS.qty}.`);
       if (new Set(clean.map((l) => l.itemId)).size !== clean.length) return setError('An item appears twice. Combine them into one line.');
       if (!requiredDate) return setError('Choose the date you need the items.');
-      data = { type: 'stationery', lines: clean, note, requiredDate };
+      if (requiredDate < todayText()) return setError('The date you need the items cannot be in the past.');
+      if (note.trim().length > LIMITS.note) return setError('The note is too long (maximum 1000 characters).');
+      data = { type: 'stationery', lines: clean, note: note.trim(), requiredDate };
     } else {
       const t = trip;
-      if (!t.purpose || !t.from || !t.to || !t.start || !t.end) return setError('Fill in the purpose, pickup, destination and both date and times.');
+      if (!t.purpose.trim() || !t.from.trim() || !t.to.trim() || !t.start || !t.end) return setError('Fill in the purpose, pickup, destination and both date and times.');
+      if (t.start < nowText()) return setError('The trip cannot start in the past. Choose a later start time.');
       if (t.end <= t.start) return setError('The end time must be after the start time.');
+      const pax = Number(t.passengers);
+      if (!Number.isInteger(pax) || pax < 1 || pax > LIMITS.passengers) return setError(`Passengers must be a whole number between 1 and ${LIMITS.passengers}.`);
       if (!vehicleTypes.length) return setError('No vehicles have been added yet. Please ask the Admin department to add vehicles.');
       if (!vType) return setError('No vehicle is available right now. Please try again later or contact the Admin department.');
-      data = { type: 'vehicle', trip: { ...t, vehicleType: vType, passengers: Number(t.passengers) }, note };
+      const maxSeats = Math.max(0, ...availableVehicles(db).filter((v) => v.type === vType).map((v) => Number(v.capacity) || 0));
+      if (pax > maxSeats) return setError(`The biggest free ${vType} has ${maxSeats} seats, but you need ${pax}. Reduce the passengers or choose another vehicle type.`);
+      if (note.trim().length > LIMITS.note) return setError('The note is too long (maximum 1000 characters).');
+      data = { type: 'vehicle', trip: { ...t, purpose: t.purpose.trim(), from: t.from.trim(), to: t.to.trim(), vehicleType: vType, passengers: pax }, note: note.trim() };
     }
     setBusy(true);
     const id = await act.createRequest(data);
@@ -117,7 +129,7 @@ export default function NewRequest() {
                         {item && <small>{item.stock} {item.unit} in stock</small>}
                       </F>
                       <F label={i === 0 ? `Quantity${item ? ` (${item.unit})` : ''}` : ''}>
-                        <Stepper value={l.qty} onChange={(v) => setLine(i, 'qty', v)} />
+                        <Stepper value={l.qty} max={LIMITS.qty} onChange={(v) => setLine(i, 'qty', v)} />
                       </F>
                       {lines.length > 1 && (
                         <button type="button" className="nr-x" onClick={() => setLines(lines.filter((_, idx) => idx !== i))} aria-label="Remove this item">✕</button>
@@ -132,24 +144,24 @@ export default function NewRequest() {
             <>
               <section className="nr-card">
                 <h2>Trip details</h2>
-                <F label="Purpose of the trip"><input value={trip.purpose} placeholder="e.g. Client site visit" onChange={(e) => setT('purpose', e.target.value)} /></F>
+                <F label="Purpose of the trip"><input maxLength={LIMITS.place} value={trip.purpose} placeholder="e.g. Client site visit" onChange={(e) => setT('purpose', e.target.value)} /></F>
                 <div className="nr-route">
-                  <F label="Pickup location" grow><input value={trip.from} placeholder="e.g. Head office" onChange={(e) => setT('from', e.target.value)} /></F>
+                  <F label="Pickup location" grow><input maxLength={LIMITS.place} value={trip.from} placeholder="e.g. Head office" onChange={(e) => setT('from', e.target.value)} /></F>
                   <span className="nr-arrow" aria-hidden="true">→</span>
-                  <F label="Destination" grow><input value={trip.to} placeholder="e.g. Showroom 2" onChange={(e) => setT('to', e.target.value)} /></F>
+                  <F label="Destination" grow><input maxLength={LIMITS.place} value={trip.to} placeholder="e.g. Showroom 2" onChange={(e) => setT('to', e.target.value)} /></F>
                 </div>
               </section>
               <section className="nr-card">
                 <h2>Schedule</h2>
                 <div className="nr-two">
-                  <F label="From"><input type="datetime-local" value={trip.start} onChange={(e) => setT('start', e.target.value)} /></F>
-                  <F label="To"><input type="datetime-local" value={trip.end} onChange={(e) => setT('end', e.target.value)} /></F>
+                  <F label="From"><input type="datetime-local" min={nowText()} value={trip.start} onChange={(e) => setT('start', e.target.value)} /></F>
+                  <F label="To"><input type="datetime-local" min={trip.start || nowText()} value={trip.end} onChange={(e) => setT('end', e.target.value)} /></F>
                 </div>
               </section>
               <section className="nr-card">
                 <h2>Passengers and vehicle</h2>
                 <div className="nr-two">
-                  <F label="Passengers"><Stepper value={trip.passengers} onChange={(v) => setT('passengers', v)} /></F>
+                  <F label="Passengers"><Stepper value={trip.passengers} max={LIMITS.passengers} onChange={(v) => setT('passengers', v)} /></F>
                 </div>
                 <div className="nr-label">Vehicle type</div>
                 {vehicleTypes.length ? (
@@ -178,14 +190,14 @@ export default function NewRequest() {
             <section className="nr-card">
               <h2>When do you need it?</h2>
               <div className="nr-two">
-                <F label="Needed by"><input type="date" value={requiredDate} onChange={(e) => setRequiredDate(e.target.value)} /></F>
+                <F label="Needed by"><input type="date" min={todayText()} value={requiredDate} onChange={(e) => setRequiredDate(e.target.value)} /></F>
               </div>
             </section>
           )}
 
           <section className="nr-card">
             <h2>Reason or note <span className="nr-opt">optional</span></h2>
-            <textarea rows="3" value={note} placeholder="Anything the approvers should know" onChange={(e) => setNote(e.target.value)} />
+            <textarea rows="3" maxLength={LIMITS.note} value={note} placeholder="Anything the approvers should know" onChange={(e) => setNote(e.target.value)} />
           </section>
         </div>
 

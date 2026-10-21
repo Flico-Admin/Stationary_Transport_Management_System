@@ -3,6 +3,7 @@ import { useStore, hodCovers } from '../store.jsx';
 import { Badge, Empty, PageHeader, fmtDate } from '../components/ui.jsx';
 import { REQUEST_STATUSES } from '../data/mock.js';
 import RequestDetail from '../components/RequestDetail.jsx';
+import { adminCanAct, hodCanAct } from '../approval.js';
 
 const TITLES = {
   mine: ['My requests', 'Track the status of everything you have asked for.'],
@@ -22,8 +23,8 @@ export default function Requests({ mode }) {
   if (mode === 'mine') rows = rows.filter((r) => r.userId === user.id);
   if (mode === 'queue') {
     rows = rows.filter((r) =>
-      (can('hodApproval', 'edit') && r.status === 'Pending HOD Approval' && hodCovers(db, user, r)) ||
-      (can('adminApproval', 'edit') && r.status === 'Pending Admin Approval') ||
+      (can('hodApproval', 'edit') && hodCanAct(r, user.id) && hodCovers(db, user, r)) ||
+      (can('adminApproval', 'edit') && adminCanAct(r, user.id)) ||
       (can('issue', 'edit') && ['Approved', 'No Vehicle Available'].includes(r.status)));
   }
   rows = rows.filter((r) => {

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useStore, vehicleState, fleetCounts, hodCovers } from '../store.jsx';
+import { adminCanAct, hodCanAct } from '../approval.js';
 import { PageHeader } from '../components/ui.jsx';
 
 const PENDING = ['Pending HOD Approval', 'Pending Admin Approval'];
@@ -42,8 +43,8 @@ export default function Dashboard() {
 
   // 2. Work waiting for this person
   const actionCards = [];
-  if (can('hodApproval', 'edit')) actionCards.push({ label: 'Waiting for your HOD approval', value: all.filter((r) => r.status === 'Pending HOD Approval' && hodCovers(db, user, r)).length, to: '/queue' });
-  if (can('adminApproval', 'edit')) actionCards.push({ label: 'Waiting for Admin approval', value: count(all, ['Pending Admin Approval']), to: '/queue' });
+  if (can('hodApproval', 'edit')) actionCards.push({ label: 'Waiting for your HOD approval', value: all.filter((r) => hodCanAct(r, user.id) && hodCovers(db, user, r)).length, to: '/queue' });
+  if (can('adminApproval', 'edit')) actionCards.push({ label: 'Waiting for Admin approval', value: all.filter((r) => adminCanAct(r, user.id)).length, to: '/queue' });
   if (can('issue', 'edit')) actionCards.push({ label: 'Approved, ready to issue or assign', value: count(all, ['Approved', 'No Vehicle Available']), to: '/queue' });
   if (can('issue', 'edit') || can('vehicles')) {
     const late = db.vehicles.filter((v) => v.active && vehicleState(db, v).label === 'Overdue').length;

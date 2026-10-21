@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore, vehicleConflicts, driverConflicts, hodCovers, approverUnitId } from '../store.jsx';
 import { driverMessage, whatsappLink, phoneForWhatsApp } from '../driverMessage.js';
 import { Badge, Field, Modal, fmtDT, fmtDate } from './ui.jsx';
+import { adminCanAct, hodCanAct, isOwn, tripPassed, LIMITS } from '../approval.js';
 
 const STEPS = ['Submitted', 'HOD approval', 'Admin approval', 'Issued'];
 
@@ -47,18 +48,22 @@ export default function RequestDetail({ id, onClose }) {
   const done = (fn) => { fn(); onClose(); };
 
   const canCancel = isMine && ['Pending HOD Approval', 'Pending Admin Approval'].includes(r.status);
-  const canHod = can('hodApproval', 'edit') && r.status === 'Pending HOD Approval' && hodCovers(db, user, r);
+  const canHod = can('hodApproval', 'edit') && hodCanAct(r, user.id) && hodCovers(db, user, r);   // never your own request
   const approverName = db.units.find((x) => x.id === approverUnitId(db, r.unitId))?.name;
-  const canAdmin = can('adminApproval', 'edit') && r.status === 'Pending Admin Approval';
+  const canAdmin = can('adminApproval', 'edit') && adminCanAct(r, user.id);   // only after the HOD has approved, never your own request
+  const adminBlocked = can('adminApproval', 'edit') && !can('hodApproval', 'edit') && r.status === 'Pending HOD Approval';
+  // You are an approver for this step, but it is your own request
+  const ownBlocked = isOwn(r, user.id) && ((can('hodApproval', 'edit') && r.status === 'Pending HOD Approval') || (can('adminApproval', 'edit') && r.status === 'Pending Admin Approval'));
+  const passed = (canHod || canAdmin) && tripPassed(r);   // the trip time is already over
   const canIssue = can('issue', 'edit') && ['Approved', 'No Vehicle Available'].includes(r.status);
 
-  const reject = (fn) => { if (!comment.trim()) return setErr('Write a reason before rejecting.'); done(() => fn(false, comment.trim())); };
+  const reject = (fn) => { if (comment.trim().length < 3) return setErr('Write a reason (at least 3 characters) before rejecting.'); done(() => fn(false, comment.trim())); };
 
   const approveAdmin = () => {
     const lines = r.lines || []; // vehicle requests have no item lines
     for (let i = 0; i < lines.length; i++) {
       const v = Number(qty[i]);
-      if (isNaN(v) || v < 0 || v > lines[i].qty) return setErr('Approved quantity must be between 0 and the quantity requested.');
+      if (!Number.isInteger(v) || v < 0 || v > lines[i].qty) return setErr('Approved quantity must be a whole number between 0 and the quantity requested.');
     }
     if (lines.length > 0 && lines.every((_, i) => Number(qty[i]) === 0)) return setErr('Approve at least one item, or reject the request.');
     done(() => act.adminDecision(r.id, true, comment.trim(), qty));
@@ -67,10 +72,11 @@ export default function RequestDetail({ id, onClose }) {
   const issue = () => {
     for (let i = 0; i < r.lines.length; i++) {
       const v = Number(iss[i]); const stock = item(r.lines[i].itemId).stock;
-      if (isNaN(v) || v < 0 || v > (r.lines[i].approvedQty ?? r.lines[i].qty)) return setErr('Issued quantity cannot be more than the approved quantity.');
+      if (!Number.isInteger(v) || v < 0 || v > (r.lines[i].approvedQty ?? r.lines[i].qty)) return setErr('Issued quantity must be a whole number, not more than the approved quantity.');
       if (v > stock) return setErr(`Not enough stock for ${item(r.lines[i].itemId).name} (only ${stock} left).`);
     }
     if (!recv.trim()) return setErr('Enter who received the items.');
+    if (recv.trim().length > LIMITS.name) return setErr('The name is too long (maximum 100 characters).');
     done(() => act.issueStationery(r.id, iss, recv.trim()));
   };
 
@@ -89,7 +95,10 @@ export default function RequestDetail({ id, onClose }) {
   const assign = async () => {
     if (!vehicleId) return setErr('Choose a vehicle to assign.');
     if (conflicts.length) return setErr(`${conflicts[0].text} Choose another vehicle.`);
+    const chosen = db.vehicles.find((v) => v.id === Number(vehicleId));
+    if (chosen && chosen.capacity < r.trip.passengers) return setErr(`${chosen.number} has ${chosen.capacity} seats but this trip needs ${r.trip.passengers}. Choose a bigger vehicle.`);
     if (!recv.trim()) return setErr('Enter who received the vehicle.');
+    if (recv.trim().length > LIMITS.name) return setErr('The name is too long (maximum 100 characters).');
     if (driverId && driverConflicts(db, r, driverId).length) {
       return setErr(`${db.drivers.find((d) => d.id === Number(driverId))?.name} is already on another trip at that time. Choose a free driver.`);
     }
@@ -111,6 +120,9 @@ export default function RequestDetail({ id, onClose }) {
       <div className="detail-top"><Badge status={r.status} /><span>{who?.name}, {r.dept} · {fmtDate(r.createdAt)}</span></div>
       <Track r={r} />
       {r.status === 'Pending HOD Approval' && <p className="sub">Waiting for the {approverName} HOD to approve.</p>}
+      {ownBlocked && <p className="note warn-box">You cannot approve or reject your own request. Another person must do this.</p>}
+      {passed && <p className="note bad">The trip time of this request has already passed, so it cannot be approved. You can reject it with a reason.</p>}
+      {adminBlocked && <p className="note warn-box">Admin cannot approve this request yet. The {approverName} HOD must approve it first.</p>}
 
       {r.status === 'Rejected' && <p className="note bad">Rejected by {r.rejectedAt === 'hod' ? 'HOD' : 'Admin'}: {r.rejectionReason}</p>}
       {r.status === 'No Vehicle Available' && <p className="note bad">No vehicle was available for this trip. {can('issue', 'edit') ? 'Assign a vehicle below when one is free.' : 'The Admin department will assign a vehicle when one is free.'}{nvEntry?.comment ? ` Reason: ${nvEntry.comment}` : ''}</p>}
@@ -147,7 +159,7 @@ export default function RequestDetail({ id, onClose }) {
       {r.receivedBy && <p className="sub">Received by {r.receivedBy} on {fmtDT(r.issuedAt)}</p>}
 
       {(canHod || canAdmin || (needsAssign && r.status === 'Approved')) && (
-        <Field label="Comment" hint={needsAssign ? 'Optional. If you mark "No vehicle available", the requester sees this comment.' : 'Required when rejecting.'}><textarea rows="2" value={comment} onChange={(e) => { setComment(e.target.value); setErr(''); }} /></Field>
+        <Field label="Comment" hint={needsAssign ? 'Optional. If you mark "No vehicle available", the requester sees this comment.' : 'Required when rejecting (at least 3 characters).'}><textarea rows="2" maxLength={LIMITS.note} value={comment} onChange={(e) => { setComment(e.target.value); setErr(''); }} /></Field>
       )}
 
       {needsAssign && (
@@ -157,7 +169,8 @@ export default function RequestDetail({ id, onClose }) {
               <option value="">Select a vehicle</option>
               {db.vehicles.filter((v) => v.active).map((v) => {
                 const busy = vehicleConflicts(db, r, v.id);
-                return <option key={v.id} value={v.id} disabled={busy.length > 0}>{v.number} ({v.type}, seats {v.capacity}) {busy.length ? `(not available: ${busy[0].short})` : '(available)'}</option>;
+                const small = v.capacity < r.trip.passengers;
+                return <option key={v.id} value={v.id} disabled={busy.length > 0 || small}>{v.number} ({v.type}, seats {v.capacity}) {busy.length ? `(not available: ${busy[0].short})` : small ? `(too small: trip needs ${r.trip.passengers} seats)` : '(available)'}</option>;
               })}
             </select>
           </Field>
@@ -173,7 +186,7 @@ export default function RequestDetail({ id, onClose }) {
         </div>
       )}
       {conflicts.length > 0 && <div className="note warn-box">{conflicts.map((c) => <div key={c.text}>{c.text}</div>)}Choose another vehicle.</div>}
-      {(needsAssign || (canIssue && r.type === 'stationery')) && <Field label="Received by"><input value={recv} onChange={(e) => { setRecv(e.target.value); setErr(''); }} /></Field>}
+      {(needsAssign || (canIssue && r.type === 'stationery')) && <Field label="Received by"><input maxLength={LIMITS.name} value={recv} onChange={(e) => { setRecv(e.target.value); setErr(''); }} /></Field>}
 
       {overdue && <p className="note bad">This trip is past its planned end time and the vehicle is still marked as out. Mark the trip completed when it is back, or extend the end time if the trip is still going.</p>}
       {canFinish && (
@@ -187,8 +200,8 @@ export default function RequestDetail({ id, onClose }) {
       {err && <p className="err">{err}</p>}
       <div className="actions">
         {canCancel && <button className="btn danger" onClick={() => done(() => act.cancel(r.id))}>Cancel request</button>}
-        {canHod && <><button className="btn danger" onClick={() => reject((a, c) => act.hodDecision(r.id, a, c))}>Reject</button><button className="btn primary" onClick={() => done(() => act.hodDecision(r.id, true, comment.trim()))}>Approve</button></>}
-        {canAdmin && <><button className="btn danger" onClick={() => reject((a, c) => act.adminDecision(r.id, a, c))}>Reject</button><button className="btn primary" onClick={approveAdmin}>Approve</button></>}
+        {canHod && <><button className="btn danger" onClick={() => reject((a, c) => act.hodDecision(r.id, a, c))}>Reject</button><button className="btn primary" disabled={passed} onClick={() => done(() => act.hodDecision(r.id, true, comment.trim()))}>Approve</button></>}
+        {canAdmin && <><button className="btn danger" onClick={() => reject((a, c) => act.adminDecision(r.id, a, c))}>Reject</button><button className="btn primary" disabled={passed} onClick={approveAdmin}>Approve</button></>}
         {canIssue && r.type === 'stationery' && <button className="btn primary" onClick={issue}>Issue items</button>}
         {needsAssign && r.status === 'Approved' && <button className="btn danger" onClick={() => done(() => act.noVehicle(r.id, comment.trim()))}>No vehicle available</button>}
         {needsAssign && <button className="btn primary" onClick={assign}>Assign vehicle</button>}
