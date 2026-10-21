@@ -14,6 +14,8 @@ export default function StationeryCosts() {
   const allowed = can('costReports');
   const [view, setView] = useState(VIEWS[0]);
   const [data, setData] = useState(null);        // null = loading
+  const [stockValues, setStockValues] = useState(null);   // itemId -> { value, avgCost }; null = loading
+  const [stockError, setStockError] = useState('');
   const [error, setError] = useState('');
   const [kind, setKind] = useState(KINDS[0]);
   const [stockKind, setStockKind] = useState(STOCK_KINDS[0]);
@@ -27,15 +29,16 @@ export default function StationeryCosts() {
   useEffect(() => {
     if (!allowed) return;
     api('GET', '/reports/stationery-costs').then((r) => setData(r.rows)).catch((e) => setError(e.message));
-  }, [allowed]);
+    api('GET', '/reports/stock-value').then((r) => setStockValues(new Map(r.rows.map((x) => [x.itemId, x])))).catch((e) => setStockError(e.message));
+  }, [allowed, db.items]);   // db.items changes when stock is added or issued, so the value stays up to date
 
   // Issued cost (what was given out)
   const rows = useMemo(() => pickRows(data || [], { unitId, category, from, to }), [data, unitId, category, from, to]);
   const sum = totals(rows);
   const issuedReport = useMemo(() => buildStationeryReport(rows, kind), [rows, kind]);
 
-  // Stock value (what is in the store now) - comes from the items list, no extra request needed
-  const sRows = useMemo(() => stockRows(db.items, { category, includeInactive }), [db.items, category, includeInactive]);
+  // Stock value (what is in the store now): each delivery still in the store counts at its own price
+  const sRows = useMemo(() => stockRows(db.items, { category, includeInactive }, stockValues || new Map()), [db.items, category, includeInactive, stockValues]);
   const sSum = stockTotals(sRows);
   const stockReport = useMemo(() => buildStockReport(sRows, stockKind), [sRows, stockKind]);
 
@@ -60,8 +63,8 @@ export default function StationeryCosts() {
   });
 
   const sub = isStock
-    ? `Value of the stock in the store right now (quantity in stock x unit price). Showing: ${category || 'all categories'}${includeInactive ? ', including inactive items' : ''}.`
-    : `Cost of stationery issued (quantity issued x unit price). Showing: ${where}, ${category || 'all categories'}, ${period}.`;
+    ? `Value of the stock in the store right now. Each delivery still in the store counts at the price it was bought at. Showing: ${category || 'all categories'}${includeInactive ? ', including inactive items' : ''}.`
+    : `Cost of stationery issued. The oldest stock is issued first, so the cost follows the price of that delivery. Showing: ${where}, ${category || 'all categories'}, ${period}.`;
 
   const categorySelect = (
     <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
@@ -86,7 +89,9 @@ export default function StationeryCosts() {
             <label className="inline"><input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} /> Include inactive items</label>
           </div>
 
-          {sSum.unpriced > 0 && <p className="note">{sSum.unpriced} item(s) in stock have no unit price, so their value is counted as 0. Set the price in Stationery items.</p>}
+          {stockError && <p className="err">{stockError}</p>}
+          {!stockError && !stockValues && <p className="note">Loading stock values...</p>}
+          {sSum.unpriced > 0 && <p className="note">{sSum.unpriced} item(s) in stock have no price, so their value is counted as 0. Add stock with a price, or set the price in Stationery items.</p>}
 
           <div className="stats">
             <div className="stat"><b>{money(sSum.value)}</b><span>Total stock value</span></div>
@@ -114,7 +119,7 @@ export default function StationeryCosts() {
 
           {error ? <Empty>{error}</Empty> : !data ? <Empty>Loading...</Empty> : (
             <>
-              {sum.unpriced > 0 && <p className="note">{sum.unpriced} issued item line(s) have no unit price, so they are counted as 0. Set the price in Stationery items.</p>}
+              {sum.unpriced > 0 && <p className="note">{sum.unpriced} issued item line(s) have no price, so they are counted as 0. Set the price in Stationery items.</p>}
 
               <div className="stats">
                 <div className="stat"><b>{money(sum.cost)}</b><span>Total stationery cost</span></div>

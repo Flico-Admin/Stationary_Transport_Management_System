@@ -61,18 +61,19 @@ export function buildStationeryReport(rows, kind) {
   }
   // Issued details
   const out = rows.map((r) => [r.date, r.requestId, r.unitName, r.requester, `${r.code} ${r.itemName}`, r.qty, r.unitPrice, r.amount]);
-  return { head: ['Issued on', 'Request', 'Department / location', 'Requested by', 'Item', 'Quantity', 'Unit price', 'Cost'], rows: withTotal(out, [5, 7]), money: [6, 7], dates: [0] };
+  return { head: ['Issued on', 'Request', 'Department / location', 'Requested by', 'Item', 'Quantity', 'Unit cost', 'Cost'], rows: withTotal(out, [5, 7]), money: [6, 7], dates: [0] };
 }
 
-// ---------- Stock value: what is in the store right now (quantity in stock x unit price) ----------
-// This uses db.items, so it needs no new backend route.
-export function stockRows(items, { category, includeInactive }) {
+// ---------- Stock value: what is in the store right now ----------
+// Every delivery that is still in the store counts at its own price. The values come from the backend (valueByItem: itemId -> { value, avgCost }).
+export function stockRows(items, { category, includeInactive }, valueByItem = new Map()) {
   return items
     .filter((i) => (includeInactive || i.active) && (!category || i.category === category))
     .map((i) => {
       const stock = Number(i.stock) || 0;
-      const unitPrice = Number(i.unitPrice) || 0;
-      return { id: i.id, code: i.code, name: i.name, category: i.category, unit: i.unit, stock, min: Number(i.min) || 0, unitPrice, value: round2(stock * unitPrice) };
+      const v = valueByItem.get(i.id);
+      const value = v ? round2(v.value) : 0;
+      return { id: i.id, code: i.code, name: i.name, category: i.category, unit: i.unit, stock, min: Number(i.min) || 0, avgCost: v ? v.avgCost : 0, value };
     });
 }
 
@@ -81,7 +82,7 @@ export function stockTotals(rows) {
     value: round2(rows.reduce((s, r) => s + r.value, 0)),
     units: rows.reduce((s, r) => s + r.stock, 0),
     items: rows.length,
-    unpriced: rows.filter((r) => r.stock > 0 && !(r.unitPrice > 0)).length,   // in stock but no price yet
+    unpriced: rows.filter((r) => r.stock > 0 && !(r.value > 0)).length,   // in stock but no price yet
     low: rows.filter((r) => r.stock <= r.min).length,
   };
 }
@@ -99,6 +100,6 @@ export function buildStockReport(rows, kind) {
   }
   // By item
   const out = [...rows].sort((a, b) => b.value - a.value)
-    .map((r) => [`${r.code} ${r.name}`, r.category, r.unit, r.stock, r.unitPrice, r.value, r.stock <= r.min ? 'Low stock' : '']);
-  return { head: ['Item', 'Category', 'Unit', 'In stock', 'Unit price', 'Stock value', 'Status'], rows: withTotal(out, [3, 5]), money: [4, 5] };
+    .map((r) => [`${r.code} ${r.name}`, r.category, r.unit, r.stock, r.avgCost, r.value, r.stock <= r.min ? 'Low stock' : '']);
+  return { head: ['Item', 'Category', 'Unit', 'In stock', 'Average cost', 'Stock value', 'Status'], rows: withTotal(out, [3, 5]), money: [4, 5] };
 }

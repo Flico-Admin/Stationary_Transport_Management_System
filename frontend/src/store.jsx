@@ -94,6 +94,7 @@ export const hodCovers = (db, user, r) => !!user && (user.role === 'it' || appro
 const EMPTY = {
   roles: {}, units: [], users: [], categories: [], items: [], vehicles: [], drivers: [], suppliers: [],
   purchaseOrders: [], maintenance: [], fuel: [], requests: [], audit: [],
+  utilityAccounts: [], utilityBills: [], buildingJobs: [],
 };
 
 export function StoreProvider({ children }) {
@@ -169,7 +170,10 @@ export function StoreProvider({ children }) {
     // ---------- generic master data (items, vehicles, drivers, suppliers) ----------
     save: (collection, record) => run(() => api('POST', `/${collection}/save`, record), 'Saved'),
     setActive: (collection, id, active) => run(() => api('POST', `/${collection}/${id}/active`, { active })),
-    addStock: (itemId, qty) => run(() => api('POST', `/items/${itemId}/stock`, { qty: Number(qty) }), 'Stock added'),
+    // every delivery is saved with its own price (stock batch), so costs follow the real purchase prices
+    addStock: (itemId, { qty, unitPrice, receivedDate, note }) =>
+      run(() => api('POST', `/items/${itemId}/stock`, { qty: Number(qty), unitPrice: Number(unitPrice), receivedDate, note }), 'Stock added'),
+    setBatchPrice: (batchId, unitPrice) => run(() => api('POST', `/items/batches/${batchId}/price`, { unitPrice: Number(unitPrice) }), 'Price corrected'),
     addCategory: (name) => run(() => api('POST', '/categories', { name })),
 
     // ---------- purchase orders ----------
@@ -180,6 +184,19 @@ export function StoreProvider({ children }) {
     addMaintenance: (rec) => run(() => api('POST', '/maintenance', rec), 'Maintenance record saved'),
     markRepaired: (recId) => run(() => api('POST', `/maintenance/${recId}/repaired`), 'Vehicle is available again'),
     addFuel: (rec) => run(() => api('POST', '/fuel', rec), 'Fuel record saved'),
+
+    // ---------- utility bills (Admin department) ----------
+    saveUtilityAccount: (a) => run(() => api('POST', '/utility-accounts/save', a), 'Account saved'),
+    setUtilityAccountActive: (id, active) => run(() => api('POST', `/utility-accounts/${id}/active`, { active })),
+    saveUtilityBill: (b) => run(() => api('POST', '/utility-bills/save', b), 'Bill saved'),
+    payUtilityBill: (id, paidDate, ref) => run(() => api('POST', `/utility-bills/${id}/pay`, { paidDate, ref }), 'Bill marked as paid'),
+    unpayUtilityBill: (id) => run(() => api('POST', `/utility-bills/${id}/unpay`), 'Bill marked as unpaid'),
+    deleteUtilityBill: (id) => run(() => api('POST', `/utility-bills/${id}/delete`), 'Bill deleted'),
+
+    // ---------- building maintenance (Admin department) ----------
+    saveBuildingJob: (j) => run(() => api('POST', '/building-jobs/save', j), 'Job saved'),
+    setBuildingJobStatus: (id, body) => run(() => api('POST', `/building-jobs/${id}/status`, body), `Job marked ${body.status.toLowerCase()}`),
+    deleteBuildingJob: (id) => run(() => api('POST', `/building-jobs/${id}/delete`), 'Job deleted'),
 
     // ---------- departments, showrooms and warehouses ----------
     saveUnit: (u) => run(() => api('POST', '/units/save', u), 'Saved'),
