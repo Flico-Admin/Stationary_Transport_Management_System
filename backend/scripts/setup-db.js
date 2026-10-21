@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
+import { migrateStockBatches } from './stockBatchesMigration.js';
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'database');
 
@@ -28,10 +29,15 @@ try {
     // Needed for TiDB Cloud / hosted MySQL. Set DB_SSL=true in .env. Leave unset for local MySQL.
     ssl: process.env.DB_SSL === 'true' ? { minVersion: 'TLSv1.2', rejectUnauthorized: true } : undefined,
   });
+  // the stock batches table is not in schema.sql, so clear an old one first (it points to items)
+  try { await conn.query('DROP TABLE IF EXISTS request_desk.stock_batches'); } catch { /* the database does not exist yet */ }
   for (const file of ['schema.sql', 'seed.sql']) {
     await conn.query(fs.readFileSync(path.join(dir, file), 'utf8'));
     console.log(`Done: ${file}`);
   }
+
+  // Stock batches (price of every delivery) + an opening balance batch for the stock in seed.sql
+  await migrateStockBatches(conn, 'request_desk');
 
   // The only two users: Admin and Sadeep (IT, full access)
   for (const l of LOGINS) {

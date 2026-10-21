@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { q, tx, bad, notFound } from '../db.js';
 import { need } from '../auth.js';
+import { insertBatch, consumeFifo, lkToday } from '../stockCosting.js';
 
 const r = Router();
 const now = () => new Date();
@@ -20,20 +21,82 @@ r.post('/items/save', async (req, res) => {
   if (stock < 0 || min < 0) throw bad('Stock cannot be negative.');
   const price = b.unitPrice === '' || b.unitPrice == null ? 0 : Number(b.unitPrice);
   if (!Number.isFinite(price) || price < 0 || price > 9999999999) throw bad('Unit price must be a number, 0 or more.');
-  try {
-    if (b.id) await q('UPDATE items SET code=?, name=?, category_id=?, unit=?, description=?, stock=?, min_stock=?, unit_price=? WHERE id=?',
-      [b.code.trim(), b.name.trim(), cat.id, b.unit || 'piece', b.description || '', stock, min, price, b.id]);
-    else await q('INSERT INTO items (code, name, category_id, unit, description, stock, min_stock, unit_price, active) VALUES (?,?,?,?,?,?,?,?,1)',
-      [b.code.trim(), b.name.trim(), cat.id, b.unit || 'piece', b.description || '', stock, min, price]);
-  } catch (e) { dupMsg(e, 'This item code is already used.'); }
+  await tx(async (conn) => {
+    try {
+      if (b.id) {
+        const [old] = await q('SELECT stock FROM items WHERE id = ? FOR UPDATE', [b.id], conn);
+        if (!old) throw notFound('Item not found.');
+        await q('UPDATE items SET code=?, name=?, category_id=?, unit=?, description=?, stock=?, min_stock=?, unit_price=? WHERE id=?',
+          [b.code.trim(), b.name.trim(), cat.id, b.unit || 'piece', b.description || '', stock, min, price, b.id], conn);
+        // Changing the stock number here is a correction. The stock batches follow it.
+        const change = stock - old.stock;
+        if (change > 0) await insertBatch(conn, { itemId: b.id, qty: change, unitPrice: price, source: 'adjustment', note: 'Stock number changed by editing the item', by: req.user.name });
+        if (change < 0) await consumeFifo(conn, b.id, -change, price);
+      } else {
+        const ins = await q('INSERT INTO items (code, name, category_id, unit, description, stock, min_stock, unit_price, active) VALUES (?,?,?,?,?,?,?,?,1)',
+          [b.code.trim(), b.name.trim(), cat.id, b.unit || 'piece', b.description || '', stock, min, price], conn);
+        if (stock > 0) await insertBatch(conn, { itemId: ins.insertId, qty: stock, unitPrice: price, source: 'opening', note: 'Stock when the item was added', by: req.user.name });
+      }
+    } catch (e) { dupMsg(e, 'This item code is already used.'); }
+  });
   res.json({ ok: true });
 });
+// Add stock = one delivery with its own price. The price is saved with the delivery, so costs follow the real purchase prices.
 r.post('/items/:id/stock', async (req, res) => {
   need(req.user, 'items', 'edit');
-  const qty = int(req.body?.qty, 'Enter a whole number.');
+  const b = req.body || {};
+  const qty = int(b.qty, 'Enter a whole number.');
   if (qty < 1) throw bad('Quantity must be at least 1.');
-  const upd = await q('UPDATE items SET stock = stock + ? WHERE id = ?', [qty, req.params.id]);
-  if (!upd.affectedRows) throw notFound('Item not found.');
+  if (qty > 1000000) throw bad('That quantity is too large.');
+  if (b.unitPrice === '' || b.unitPrice == null) throw bad('Enter the price of one unit for this stock.');
+  const price = Number(b.unitPrice);
+  if (!Number.isFinite(price) || price < 0 || price > 9999999999) throw bad('Unit price must be a number, 0 or more.');
+  const date = b.receivedDate || lkToday();
+  const when = new Date(`${date}T00:00:00Z`);
+  const real = isDate(date) && !Number.isNaN(when.getTime()) && when.toISOString().slice(0, 10) === date;
+  if (!real) throw bad('Enter a valid date received.');
+  if (date > new Date(Date.now() + 330 * 60000 + 86400000).toISOString().slice(0, 10)) throw bad('The date received cannot be in the future.');
+  const note = typeof b.note === 'string' ? b.note.trim() : '';
+  if (note.length > 255) throw bad('The note is too long (maximum 255 characters).');
+  await tx(async (conn) => {
+    const [item] = await q('SELECT id FROM items WHERE id = ? FOR UPDATE', [req.params.id], conn);
+    if (!item) throw notFound('Item not found.');
+    // the newest price becomes the item's current price
+    await q('UPDATE items SET stock = stock + ?, unit_price = ? WHERE id = ?', [qty, Math.round(price * 100) / 100, item.id], conn);
+    await insertBatch(conn, { itemId: item.id, qty, unitPrice: Math.round(price * 100) / 100, receivedDate: date, source: 'purchase', note, by: req.user.name });
+  });
+  res.json({ ok: true });
+});
+
+// The deliveries (batches) of one item: what came in, at what price, and how much of it is still in the store
+r.get('/items/:id/batches', async (req, res) => {
+  need(req.user, 'items', 'view');
+  let rows;
+  try {
+    rows = await q(
+      `SELECT id, DATE_FORMAT(received_date, '%Y-%m-%d') AS receivedDate, qty_received AS qtyReceived, qty_left AS qtyLeft, unit_price AS unitPrice,
+              source, note, created_by AS createdBy
+         FROM stock_batches WHERE item_id = ? ORDER BY received_date DESC, id DESC`, [req.params.id]);
+  } catch (e) { if (e.code === 'ER_NO_SUCH_TABLE') throw bad('Run "npm run db:migrate-batches" in the backend folder first.'); throw e; }
+  res.json({ rows: rows.map((x) => ({ ...x, unitPrice: Number(x.unitPrice) })) });
+});
+
+// Correct a wrongly typed price. Only possible while none of that delivery has been issued yet.
+r.post('/items/batches/:id/price', async (req, res) => {
+  need(req.user, 'items', 'edit');
+  const v = req.body?.unitPrice;
+  const price = Number(v);
+  if (v === '' || v == null || !Number.isFinite(price) || price < 0 || price > 9999999999) throw bad('Unit price must be a number, 0 or more.');
+  const fixed = Math.round(price * 100) / 100;
+  await tx(async (conn) => {
+    const [b] = await q('SELECT * FROM stock_batches WHERE id = ? FOR UPDATE', [req.params.id], conn);
+    if (!b) throw notFound('Stock record not found.');
+    if (b.qty_left !== b.qty_received) throw bad('Some of this stock has already been issued, so its price can no longer be changed.');
+    await q('UPDATE stock_batches SET unit_price = ? WHERE id = ?', [fixed, b.id], conn);
+    // if this is the newest delivery, it also sets the item's current price
+    const [newest] = await q('SELECT id FROM stock_batches WHERE item_id = ? ORDER BY received_date DESC, id DESC LIMIT 1', [b.item_id], conn);
+    if (newest && newest.id === b.id) await q('UPDATE items SET unit_price = ? WHERE id = ?', [fixed, b.item_id], conn);
+  });
   res.json({ ok: true });
 });
 r.post('/categories', async (req, res) => {
@@ -123,8 +186,12 @@ r.post('/purchase-orders/:ref/status', async (req, res) => {
     await q('UPDATE purchase_orders SET status = ? WHERE id = ?', [status, id], conn);
     await q('INSERT INTO purchase_order_history (po_id, at, by_name, action) VALUES (?,?,?,?)', [id, now(), req.user.name, `Status changed to ${status}`], conn);
     if (status === 'Received') {
-      const lines = await q('SELECT item_id, qty FROM purchase_order_lines WHERE po_id = ?', [id], conn);
-      for (const l of lines) await q('UPDATE items SET stock = stock + ? WHERE id = ?', [l.qty, l.item_id], conn);   // FR-48
+      const lines = await q('SELECT l.item_id, l.qty, i.unit_price FROM purchase_order_lines l JOIN items i ON i.id = l.item_id WHERE l.po_id = ?', [id], conn);
+      for (const l of lines) {
+        await q('UPDATE items SET stock = stock + ? WHERE id = ?', [l.qty, l.item_id], conn);   // FR-48
+        // a purchase order has no prices, so the delivery is saved at the item's current price (it can be corrected in Stock history)
+        await insertBatch(conn, { itemId: l.item_id, qty: l.qty, unitPrice: Number(l.unit_price), source: 'po', note: `Received on PO-${id} (item's current price)`, by: req.user.name });
+      }
     }
   });
   res.json({ ok: true });

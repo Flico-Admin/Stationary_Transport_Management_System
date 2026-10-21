@@ -4,6 +4,7 @@ import { q, tx, bad, forbidden, notFound } from '../db.js';
 import { need } from '../auth.js';
 import { can } from '../permissions.js';
 import { REQ } from '../bootstrap.js';
+import { consumeFifo } from '../stockCosting.js';
 
 const r = Router();
 const now = () => new Date();
@@ -220,7 +221,14 @@ r.post('/:ref/issue', async (req, res) => {
       if (!Number.isInteger(v) || v < 0 || v > (lines[i].approved_qty ?? lines[i].qty)) throw bad('Issued quantity cannot be more than the approved quantity.');
       const upd = await q('UPDATE items SET stock = stock - ? WHERE id = ? AND stock >= ?', [v, lines[i].item_id, v], conn);
       if (!upd.affectedRows) throw bad(`Not enough stock for ${lines[i].item_name}.`);
-      await q('UPDATE request_lines SET issued_qty = ?, unit_price = ? WHERE id = ?', [v, lines[i].item_price, lines[i].id], conn);
+      // Cost = the price of the oldest stock first (FIFO). A line can take stock from more than one delivery.
+      const cost = v > 0 ? await consumeFifo(conn, lines[i].item_id, v, lines[i].item_price) : { total: 0, unitPrice: Number(lines[i].item_price) };
+      try {
+        await q('UPDATE request_lines SET issued_qty = ?, unit_price = ?, issued_cost = ? WHERE id = ?', [v, cost.unitPrice, cost.total, lines[i].id], conn);
+      } catch (e) {
+        if (e.code !== 'ER_BAD_FIELD_ERROR') throw e;   // "npm run db:migrate-batches" has not been run yet: save the price the old way
+        await q('UPDATE request_lines SET issued_qty = ?, unit_price = ? WHERE id = ?', [v, lines[i].item_price, lines[i].id], conn);
+      }
     }
     await q("UPDATE requests SET status = 'Issued / Completed', received_by = ?, issued_at = ? WHERE id = ?", [recv, now(), row.id], conn);
     await history(conn, row.id, req.user.name, `Issued items. Received by ${recv}`);
